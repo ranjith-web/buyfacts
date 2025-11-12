@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import './Popup.css';
 
+const API_BASE_URL = 'http://localhost:5001/api';
+
 function Popup() {
   const [stats, setStats] = useState({
     totalScraped: 0,
@@ -16,12 +18,32 @@ function Popup() {
 
   const loadStats = async () => {
     try {
-      const result = await chrome.storage.local.get(['totalScraped', 'lastScrape', 'isEnabled']);
+      // Load from local storage first (for lastScrape and isEnabled)
+      const localResult = await chrome.storage.local.get(['lastScrape', 'isEnabled']);
+      
+      // Fetch actual count from backend API
+      let totalScraped = 0;
+      try {
+        const response = await fetch(`${API_BASE_URL}/stats`);
+        if (response.ok) {
+          const data = await response.json();
+          totalScraped = data.totalProducts || 0;
+        }
+      } catch (error) {
+        console.error('Error fetching stats from backend:', error);
+        // Fallback to local storage if backend is unavailable
+        const localStats = await chrome.storage.local.get(['totalScraped']);
+        totalScraped = localStats.totalScraped || 0;
+      }
+      
       setStats({
-        totalScraped: result.totalScraped || 0,
-        lastScrape: result.lastScrape || null,
-        isEnabled: result.isEnabled !== false
+        totalScraped,
+        lastScrape: localResult.lastScrape || null,
+        isEnabled: localResult.isEnabled !== false
       });
+      
+      // Sync local storage with backend count
+      await chrome.storage.local.set({ totalScraped });
     } catch (error) {
       console.error('Error loading stats:', error);
     }
@@ -41,6 +63,7 @@ function Popup() {
       
       if (response.success) {
         setMessage('✓ Products scraped successfully!');
+        // Reload stats from backend after scraping
         setTimeout(() => loadStats(), 1000);
       } else {
         setMessage('✗ Failed to scrape: ' + response.error);
@@ -61,10 +84,25 @@ function Popup() {
   };
 
   const clearData = async () => {
-    if (window.confirm('Clear all statistics?')) {
-      await chrome.storage.local.set({ totalScraped: 0, lastScrape: null });
-      setStats({ ...stats, totalScraped: 0, lastScrape: null });
-      setMessage('✓ Statistics cleared');
+    if (window.confirm('Clear all statistics? This will clear both extension stats and backend data.')) {
+      try {
+        // Clear local storage
+        await chrome.storage.local.set({ totalScraped: 0, lastScrape: null });
+        
+        // Clear backend data (optional - uncomment if you want to clear backend too)
+        // try {
+        //   await fetch(`${API_BASE_URL}/products?confirm=yes`, { method: 'DELETE' });
+        // } catch (error) {
+        //   console.error('Error clearing backend data:', error);
+        // }
+        
+        // Reload stats from backend
+        await loadStats();
+        setMessage('✓ Statistics cleared');
+      } catch (error) {
+        console.error('Error clearing data:', error);
+        setMessage('✗ Error clearing statistics');
+      }
     }
   };
 

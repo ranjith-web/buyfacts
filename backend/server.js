@@ -21,7 +21,7 @@ const REDIS_URL = `redis://${process.env.REDIS_USERNAME}:${process.env.REDIS_PAS
 redisClient = redis.createClient({
   url: REDIS_URL
 });
-  
+
 redisClient.on('error', (err) => {
   console.error('Redis Error:', err);
   console.log('⚠️  Running without Redis cache');
@@ -45,12 +45,12 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/product_t
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-.then(() => console.log('✓ Connected to MongoDB'))
-.catch(err => {
-  console.error('❌ MongoDB connection error:', err);
-  console.error('Make sure MongoDB is running!');
-  process.exit(1);
-});
+  .then(() => console.log('✓ Connected to MongoDB'))
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err);
+    console.error('Make sure MongoDB is running!');
+    process.exit(1);
+  });
 
 // Product Schema
 const productSchema = new mongoose.Schema({
@@ -70,7 +70,7 @@ const productSchema = new mongoose.Schema({
   scrapedAt: { type: Date, default: Date.now },
   firstSeenAt: { type: Date, default: Date.now },
   lastSeenAt: { type: Date, default: Date.now },
-  scrapedCount: { type: Number, default: 1 },
+  scrapedCount: { type: Number, default: 0 },
   priceHistory: [{
     price: String,
     date: { type: Date, default: Date.now }
@@ -159,7 +159,7 @@ app.post('/api/products', async (req, res) => {
 
     // Process products with bulk operations
     const bulkOps = [];
-    
+
     for (const product of products) {
       if (!product.url) continue;
 
@@ -183,8 +183,7 @@ app.post('/api/products', async (req, res) => {
               lastSeenAt: new Date()
             },
             $setOnInsert: {
-              firstSeenAt: new Date(),
-              scrapedCount: 0
+              firstSeenAt: new Date()
             },
             $inc: {
               scrapedCount: 1
@@ -254,7 +253,7 @@ app.get('/api/products', async (req, res) => {
     // Try cache first
     const cacheKey = `products:${site || 'all'}:${searchQuery || 'all'}:${page}:${limit}:${sortBy}:${order}`;
     const cached = await getCache(cacheKey);
-    
+
     if (cached) {
       return res.json({ ...cached, fromCache: true });
     }
@@ -302,7 +301,7 @@ app.get('/api/products', async (req, res) => {
 app.get('/api/products/:id', async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-    
+
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
     }
@@ -438,7 +437,7 @@ app.get('/api/searches', async (req, res) => {
 app.delete('/api/products/:id', async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
-    
+
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
     }
@@ -461,7 +460,7 @@ app.delete('/api/products', async (req, res) => {
 
     await Product.deleteMany({});
     await SearchQuery.deleteMany({});
-    
+
     if (redisClient && redisClient.isOpen) {
       await redisClient.flushAll();
     }
@@ -508,12 +507,12 @@ app.listen(PORT, () => {
 // Graceful Shutdown
 process.on('SIGINT', async () => {
   console.log('\n\n🛑 Shutting down gracefully...');
-  
+
   if (redisClient && redisClient.isOpen) {
     await redisClient.quit();
     console.log('✓ Redis disconnected');
   }
-  
+
   await mongoose.connection.close();
   console.log('✓ MongoDB disconnected');
   console.log('👋 Goodbye!\n');
